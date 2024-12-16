@@ -1,0 +1,5 @@
+train: ./data/images/train  # 訓練數據集路徑
+val: ./data/images/val      # 驗證數據集路徑
+
+nc: 1                       # 類別數量
+names: ['person']           # 類別名稱
