@@ -6,24 +6,74 @@ import numpy as np
 # 加載模型
 model = YOLO('yolov8n-pose.pt')  # 載入 YOLOv8 姿勢辨識模型
 
-# 計算肩膀中心、骨盆中心及人體重心
-def calculate_centers(keypoints):
-    if None in keypoints.values():
-        return None, None, None
+# 計算人體高度（基於 YOLO 檢測框）
+def get_person_height(bbox):
+    _, y1, _, y2 = bbox  # 取得邊界框上下兩端的 Y 座標
+    return abs(y2 - y1)  # 高度為上下差值
+
+def get_y1 (bbox):
+    _, y1, _, y2 = bbox
+    return y1
+
+def get_y2 (bbox):
+    _, y1, _, y2 = bbox
+    return y2
+
+# 繪製檢測框
+def draw_bounding_box(img, bbox, label="Person", color=(0, 255, 0)):
+    x1, y1, x2, y2 = map(int, bbox)  # 將浮點數座標轉換為整數
+    # 獲取圖像解析度
+    height, width, _ = img.shape  
+
+    # 動態計算圓的半徑和邊框粗細
+    radius = int(min(width, height) * 0.005555)  # 取最小邊長的 0.5% 作為半徑
+    thickness = max(1, radius // 2) 
+            
+    # 繪製矩形框
+    cv2.rectangle(img, (x1, y1), (x2, y2), color, thickness)
+    # 在框上方繪製類別名稱
+    cv2.putText(img, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, thickness)
+
+# 計算人體重心座標
+def calculate_body_center(keypoints):
+    """
+    計算人體重心座標 (X_c, Y_c)，忽略值為 [0, 0] 的關鍵點
+    :param keypoints: numpy array，包含所有關鍵點的 [x, y] 座標
+    :return: (X_c, Y_c) 重心座標，或 None 如果所有座標都是 [0, 0]
+    """
+    if len(keypoints) == 0:
+        return None  # 若沒有關鍵點，回傳 None
+
+    # 過濾掉 [0, 0] 的關鍵點
+    valid_keypoints = keypoints[(keypoints[:, 0] != 0) | (keypoints[:, 1] != 0)]
+
+    # 若過濾後沒有有效的關鍵點，回傳 None
+    if len(valid_keypoints) == 0:
+        return None
+
+    # 計算 X_c 和 Y_c
+    X_c = np.mean(valid_keypoints[:, 0])  # 有效 x 座標的平均值
+    Y_c = np.mean(valid_keypoints[:, 1])  # 有效 y 座標的平均值
+
+    return X_c, Y_c
+
+def find_shoulder_center(keypoints):
+    L_shoulder = keypoints.get("left_shoulder")
+    R_shoulder=keypoints.get("right_shoulder")
     
-    shoulder_center = ((keypoints["left_shoulder"][0] + keypoints["right_shoulder"][0]) // 2,
-                       (keypoints["left_shoulder"][1] + keypoints["right_shoulder"][1]) // 2)
-
-    hip_center = ((keypoints["left_hip"][0] + keypoints["right_hip"][0]) // 2,
-                  (keypoints["left_hip"][1] + keypoints["right_hip"][1]) // 2)
-
-    body_center = ((shoulder_center[0] + hip_center[0]) // 2,
-                   (shoulder_center[1] + hip_center[1]) // 2)
-
-    return body_center
+    # 確保肩膀的座標有效
+    if L_shoulder is None or R_shoulder is None:
+        return None
+    if None in L_shoulder or None in R_shoulder:
+        return None
+    
+    # 計算中心點
+    X_center = (L_shoulder[0] + R_shoulder[0]) / 2
+    Y_center = (L_shoulder[1] + R_shoulder[1]) / 2
+    return X_center,Y_center
 
 # 繪製關鍵點與連線
-def draw_keypoints(img, keypoints):
+def draw_keypoints(img, keypoints, radius, thickness):
     connections = [
         (5, 6), (5, 7), (7, 9), (6, 8), (8, 10),  # 上肢
         (11, 12), (11, 13), (13, 15), (12, 14), (14, 16)  # 下肢
@@ -31,14 +81,14 @@ def draw_keypoints(img, keypoints):
 
     # 繪製關鍵點
     for x, y in keypoints:
-        cv2.circle(img, (int(x), int(y)), 5, (0, 255, 0), -1)  # 綠點
+        cv2.circle(img, (int(x), int(y)), radius, (0, 255, 0), -1)  # 綠點
 
     # 繪製連線
     for connection in connections:
         try:
             start = (int(keypoints[connection[0]][0]), int(keypoints[connection[0]][1]))
             end = (int(keypoints[connection[1]][0]), int(keypoints[connection[1]][1]))
-            cv2.line(img, start, end, (0, 0, 255), 2)  # 紅線
+            cv2.line(img, start, end, (0, 0, 255), thickness)  # 紅線
         except IndexError:
             print(f"Connection {connection} is out of range for keypoints list.")
 
@@ -61,6 +111,18 @@ def process_video(video_path):
         for result in results:
             keypoints = {}
             keypoint_coords = result.keypoints.xy[0].cpu().numpy()  # 獲取關鍵點座標
+            bbox = result.boxes.xyxy[0].cpu().numpy()  # 獲取檢測框座標 [x1, y1, x2, y2]
+
+            # 獲取圖像解析度
+            height, width, _ = frame.shape  
+
+            # 動態計算圓的半徑和邊框粗細
+            radius = int(min(width, height) * 0.005555)  # 取最小邊長的 0.5% 作為半徑
+            thickness = max(1, radius // 2) 
+            
+            # 計算人體高度（基於檢測框）
+            body_height = get_person_height(bbox)
+            # cv2.putText(frame, f"body_height: {body_height}", (20, 100), cv2.FONT_HERSHEY_PLAIN, 2, (0, 255, 255), 2, cv2.LINE_AA)
             
             # 提取特定關鍵點
             keypoints["nose"] = tuple(keypoint_coords[0]) if len(keypoint_coords) > 0 else (None, None)
@@ -69,21 +131,40 @@ def process_video(video_path):
             keypoints["left_hip"] = tuple(keypoint_coords[11]) if len(keypoint_coords) > 11 else (None, None)
             keypoints["right_hip"] = tuple(keypoint_coords[12]) if len(keypoint_coords) > 12 else (None, None)
 
-            # 計算重心
-            body_center = calculate_centers(keypoints)
+            # print(keypoint_coords)
+            
+            # 計算人體重心
+            body_center = calculate_body_center(keypoint_coords)
+            
+            # 找出肩膀中心點
+            shoulder_center = find_shoulder_center(keypoints)
+                        
+            # 繪製檢測框
+            draw_bounding_box(frame, bbox, label="Person")
+            
+            # 繪製關鍵點
+            frame = draw_keypoints(frame, keypoint_coords,radius,thickness)
+            
+            y1=get_y1(bbox)
+            y2=get_y2(bbox)
 
-            # 繪製結果
-            frame = draw_keypoints(frame, keypoint_coords)
-
-            # 畫重心及鉛垂線
+            # 畫重心
             if body_center:
-                cv2.circle(frame, (int(body_center[0]), int(body_center[1])), 5, (255, 0, 0), -1)
-                cv2.line(frame, (int(body_center[0]), 0), (int(body_center[0]), frame.shape[0]), (255, 0, 0), 2)
+                cv2.circle(frame, (int(body_center[0]), int(body_center[1])), radius, (255, 0, 0), -1)
+                
+            
+            # 繪製肩膀中心點
+            if body_center:
+                cv2.circle(frame, (int(shoulder_center[0]), int(shoulder_center[1])), radius, (255, 0, 0), -1)
+            
+            #連線
+            cv2.line(frame, (int(shoulder_center[0]), int(y1)), (int(body_center[0]), int(y2)), (255, 0, 0), thickness)
 
         # 顯示FPS
         et = time.time()
         FPS = round(1 / (et - st), 1)
-        cv2.putText(frame, f"FPS: {FPS}", (20, 50), cv2.FONT_HERSHEY_PLAIN, 2, (0, 255, 255), 2, cv2.LINE_AA)
+        cv2.putText(frame, f"FPS: {FPS}", (20, 50), cv2.FONT_HERSHEY_PLAIN, 2, (0, 255, 255), thickness, cv2.LINE_AA)
+        # cv2.putText(frame, f"body_height: {body_height}", (20, 200), cv2.FONT_HERSHEY_PLAIN, 2, (0, 255, 255), 2, cv2.LINE_AA)
         
         # 顯示影像
         cv2.imshow('Pose Detection', frame)
