@@ -260,7 +260,8 @@ def process_video(video_path,output_path):
 
             # 動態計算圓的半徑和邊框粗細
             radius = int(min(width, height) * 0.005555)  # 取最小邊長的 0.5% 作為半徑
-            thickness = max(1, radius // 2) 
+            thickness = max(1, radius // 2)
+            fontsize = min(width, height) / 850
             
             # 計算人體高度（基於檢測框）
             body_height = get_person_height(bbox)
@@ -316,35 +317,35 @@ def process_video(video_path,output_path):
                 if are_lines_perpendicular(center_line_slope, foot_line_slope):
 
                     cv2.rectangle(frame, (x1, y1), (x2, y2),  (0, 255,0), thickness)
-                    cv2.putText(frame, "Balanced", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255,0), thickness)
+                    cv2.putText(frame, "Balanced", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, fontsize, (0, 255,0), thickness)
                     state_counts["Balanced"] += 1
                 else:
                     balance_status = determine_balance(body_center, shoulder_center, L_ankle, R_anakle)
                     
                     if balance_status == "Left":
                         cv2.rectangle(frame, (x1, y1), (x2, y2), (51, 255, 255), thickness)
-                        cv2.putText(frame, "Leaning Left", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (51, 255, 255), thickness)
+                        cv2.putText(frame, "Leaning Left", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, fontsize, (51, 255, 255), thickness)
                         state_counts["Leaning Left"] += 1
                     elif balance_status == "Right":
-                        text_size = cv2.getTextSize("Leaning Right", cv2.FONT_HERSHEY_SIMPLEX, 0.6, thickness)[0]  # 返回 (width, height)
+                        text_size = cv2.getTextSize("Leaning Right", cv2.FONT_HERSHEY_SIMPLEX, fontsize, thickness)[0]  # 返回 (width, height)
                         text_width, text_height = text_size
 
                         cv2.rectangle(frame, (x1, y1), (x2, y2), (51, 153, 255), thickness)
-                        cv2.putText(frame, "Leaning Right", (x2 - text_width, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (51, 153, 255), thickness)
+                        cv2.putText(frame, "Leaning Right", (x2 - text_width, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, fontsize, (51, 153, 255), thickness)
                         state_counts["Leaning Right"] += 1
                     else:
                         cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), thickness)
-                        cv2.putText(frame, "Unbalanced", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), thickness)
+                        cv2.putText(frame, "Unbalanced", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, fontsize, (0, 0, 255), thickness)
                         state_counts["Unbalanced"] += 1
         
         # 顯示FPS
         et = time.time()
         FPS = round(1 / (et - st), 1)
-        cv2.putText(frame, f"FPS: {FPS}", (20, 50), cv2.FONT_HERSHEY_PLAIN, 2, (0, 255, 255), thickness, cv2.LINE_AA)
+        cv2.putText(frame, f"FPS: {FPS}", (20, 50), cv2.FONT_HERSHEY_PLAIN, 2*fontsize, (0, 255, 255), thickness, cv2.LINE_AA)
         
         y_offset = height - 200
         for state, count in state_counts.items():
-            cv2.putText(frame, f"{state}: {count}", (20, y_offset), cv2.FONT_HERSHEY_PLAIN, 2, (178, 102, 255), thickness, cv2.LINE_AA)
+            cv2.putText(frame, f"{state}: {count}", (20, y_offset), cv2.FONT_HERSHEY_PLAIN, 2*fontsize, (255, 255, 0), thickness, cv2.LINE_AA)
             y_offset +=30
             
         # 顯示影像
@@ -365,6 +366,6 @@ def process_video(video_path,output_path):
 # 主程式
 if __name__ == "__main__":
     # video_path = "data/videos/sample_video.mp4"  # 測試影片路徑
-    video_path = "data/videos/sample.mp4"  # 測試影片路徑
+    video_path = "data/videos/sample_video.mp4"  # 測試影片路徑
     output_path = "output.mp4"
     process_video(video_path,output_path)
