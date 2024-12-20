@@ -6,6 +6,13 @@ import numpy as np
 # 加載模型
 model = YOLO('yolov8n-pose.pt')  # 載入 YOLOv8 姿勢辨識模型
 
+state_counts = {
+    "Balanced": 0,
+    "Leaning Left": 0,
+    "Leaning Right": 0,
+    "Unbalanced": 0
+}
+
 # 計算人體高度（基於 YOLO 檢測框）
 def get_person_height(bbox):
     _, y1, _, y2 = bbox  # 取得邊界框上下兩端的 Y 座標
@@ -64,6 +71,27 @@ def find_shoulder_center(keypoints):
     Y_center = (L_shoulder[1] + R_shoulder[1]) / 2
     return X_center,Y_center
 
+# 計算交點
+def calculate_intersection(slope1, intercept1, slope2, intercept2):
+    """
+    計算兩條直線的交點
+    :param slope1: 第一條直線的斜率
+    :param intercept1: 第一條直線的截距
+    :param slope2: 第二條直線的斜率
+    :param intercept2: 第二條直線的截距
+    :return: (x, y) 交點座標
+    """
+    if slope1 is None:  # 第一條是垂直線
+        x = -intercept1  # intercept1 在垂直線時為 x 座標
+        y = slope2 * x + intercept2
+    elif slope2 is None:  # 第二條是垂直線
+        x = -intercept2
+        y = slope1 * x + intercept1
+    else:
+        x = (intercept2 - intercept1) / (slope1 - slope2)
+        y = slope1 * x + intercept1
+    return x, y
+
 # 計算截距
 def calculate_intercept(slope, point):
     """
@@ -108,6 +136,42 @@ def are_lines_perpendicular(slope1, slope2):
     else:
         return False
 
+# 重心偏向判斷
+def determine_balance(body_center, shoulder_center, L_ankle, R_ankle):
+    """
+    判斷平衡狀態（偏左、偏右或完全不平衡）
+    :param body_center: 人體重心 (x, y)
+    :param shoulder_center: 肩膀中心點 (x, y)
+    :param L_ankle: 左腳踝座標 (x, y)
+    :param R_ankle: 右腳踝座標 (x, y)
+    :return: 'Balanced', 'Left', 'Right', 'Unbalanced'
+    """
+    # 重心線斜率與截距
+    center_slope = calculate_slope(shoulder_center, body_center)
+    center_intercept = calculate_intercept(center_slope, shoulder_center)
+
+    # 腳連線斜率與截距
+    foot_slope = calculate_slope(L_ankle, R_ankle)
+    foot_intercept = calculate_intercept(foot_slope, L_ankle)
+
+    # 計算重心線與腳連線的交點
+    intersection = calculate_intersection(center_slope, center_intercept, foot_slope, foot_intercept)
+
+    if not intersection:
+        return "Unbalanced"  # 無交點，表示完全不平衡
+
+    x_inter, _ = intersection
+    x_left = min(L_ankle[0], R_ankle[0])
+    x_right = max(L_ankle[0], R_ankle[0])
+
+    if x_left <= x_inter <= x_right:
+        if x_inter < (x_left + x_right) / 2:  # 靠近左側
+            return "Left"
+        else:  # 靠近右側
+            return "Right"
+    else:
+        return "Unbalanced"  # 重心線交點不在腳連線範圍內
+
 # 兩大重心連線並延長至檢測框
 def extend_line_to_bbox(shoulder_center, body_center, bbox):
     """
@@ -149,23 +213,32 @@ def draw_keypoints(img, keypoints, radius, thickness):
 
     # 繪製關鍵點
     for x, y in keypoints:
-        cv2.circle(img, (int(x), int(y)), radius, (0, 255, 0), -1)  # 綠點
+        cv2.circle(img, (int(x), int(y)), radius, (255, 255, 255), -1)  # 白點
 
     # 繪製連線
     for connection in connections:
         try:
             start = (int(keypoints[connection[0]][0]), int(keypoints[connection[0]][1]))
             end = (int(keypoints[connection[1]][0]), int(keypoints[connection[1]][1]))
-            cv2.line(img, start, end, (0, 0, 255), thickness)  # 紅線
+            cv2.line(img, start, end, (255, 0, 255), thickness)  # 紅線
         except IndexError:
             print(f"Connection {connection} is out of range for keypoints list.")
 
     return img
 
 # 處理影片
-def process_video(video_path):
+def process_video(video_path,output_path):
     cap = cv2.VideoCapture(video_path)
     cv2.namedWindow('Pose Detection', cv2.WINDOW_NORMAL)  # 設定視窗
+
+    # 取得影片資訊
+    frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    fps = int(cap.get(cv2.CAP_PROP_FPS))  # 原影片的每秒幀數
+
+    # 初始化影片寫入器
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # 使用 MP4 格式的編碼器
+    out = cv2.VideoWriter(output_path, fourcc, fps, (frame_width, frame_height))
 
     while cap.isOpened():
         st = time.time()  # 計時開始
@@ -231,7 +304,7 @@ def process_video(video_path):
             # 連線雙腳
             R_anakle=keypoints.get("right_ankle")
             L_ankle=keypoints.get("left_ankle")
-            cv2.line(frame, (int(L_ankle[0]),int(L_ankle[1])), (int(R_anakle[0]),int(R_anakle[1])), (0, 255, 255),thickness)
+            cv2.line(frame, (int(L_ankle[0]),int(L_ankle[1])), (int(R_anakle[0]),int(R_anakle[1])), (76, 0, 153),thickness)
             
             # 判斷腳連線與重心線是否垂直
             if body_center and shoulder_center and L_ankle and R_anakle:
@@ -241,32 +314,51 @@ def process_video(video_path):
                 
                 # 判斷是否平衡
                 if are_lines_perpendicular(center_line_slope, foot_line_slope):
-                    # 繪製矩形框
-                    cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), thickness)
-                    
-                    # 在框上方繪製類別名稱
-                    cv2.putText(frame, "Balanced", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), thickness)
-                
-                else:
-                    # 繪製矩形框
-                    cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), thickness)
-                    
-                    # 在框上方繪製類別名稱
-                    cv2.putText(frame, "Unbalanced", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), thickness)
 
+                    cv2.rectangle(frame, (x1, y1), (x2, y2),  (0, 255,0), thickness)
+                    cv2.putText(frame, "Balanced", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255,0), thickness)
+                    state_counts["Balanced"] += 1
+                else:
+                    balance_status = determine_balance(body_center, shoulder_center, L_ankle, R_anakle)
+                    
+                    if balance_status == "Left":
+                        cv2.rectangle(frame, (x1, y1), (x2, y2), (51, 255, 255), thickness)
+                        cv2.putText(frame, "Leaning Left", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (51, 255, 255), thickness)
+                        state_counts["Leaning Left"] += 1
+                    elif balance_status == "Right":
+                        text_size = cv2.getTextSize("Leaning Right", cv2.FONT_HERSHEY_SIMPLEX, 0.6, thickness)[0]  # 返回 (width, height)
+                        text_width, text_height = text_size
+
+                        cv2.rectangle(frame, (x1, y1), (x2, y2), (51, 153, 255), thickness)
+                        cv2.putText(frame, "Leaning Right", (x2 - text_width, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (51, 153, 255), thickness)
+                        state_counts["Leaning Right"] += 1
+                    else:
+                        cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), thickness)
+                        cv2.putText(frame, "Unbalanced", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), thickness)
+                        state_counts["Unbalanced"] += 1
+        
         # 顯示FPS
         et = time.time()
         FPS = round(1 / (et - st), 1)
         cv2.putText(frame, f"FPS: {FPS}", (20, 50), cv2.FONT_HERSHEY_PLAIN, 2, (0, 255, 255), thickness, cv2.LINE_AA)
-        # cv2.putText(frame, f"body_height: {body_height}", (20, 200), cv2.FONT_HERSHEY_PLAIN, 2, (0, 255, 255), 2, cv2.LINE_AA)
         
+        y_offset = height - 200
+        for state, count in state_counts.items():
+            cv2.putText(frame, f"{state}: {count}", (20, y_offset), cv2.FONT_HERSHEY_PLAIN, 2, (178, 102, 255), thickness, cv2.LINE_AA)
+            y_offset +=30
+            
         # 顯示影像
         cv2.imshow('Pose Detection', frame)
         
         # ESC鍵退出
         if cv2.waitKey(1) & 0xFF == 27:
+            for state, count in state_counts.items():
+                print(f"{state}: {count}")
             break
+        
+        out.write(frame)
 
+    out.release()
     cap.release()
     cv2.destroyAllWindows()
 
@@ -274,4 +366,5 @@ def process_video(video_path):
 if __name__ == "__main__":
     # video_path = "data/videos/sample_video.mp4"  # 測試影片路徑
     video_path = "data/videos/sample.mp4"  # 測試影片路徑
-    process_video(video_path)
+    output_path = "output.mp4"
+    process_video(video_path,output_path)
