@@ -72,6 +72,37 @@ def find_shoulder_center(keypoints):
     Y_center = (L_shoulder[1] + R_shoulder[1]) / 2
     return X_center,Y_center
 
+# 根據兩點連線並延長至檢測框
+def extend_line_to_bbox(shoulder_center, body_center, bbox):
+    x1, y1, x2, y2 = bbox
+    x_s, y_s = shoulder_center
+    x_c, y_c = body_center
+    
+    # 計算斜率和截距
+    if x_c != x_s:  # 避免除以 0
+        m = (y_c - y_s) / (x_c - x_s)
+        b = y_s - m * x_s
+    else:
+        m = None  # 垂直線
+        b = None
+
+    # 計算與 bbox 上下邊的交點
+    if m is not None:
+        # 與上邊 (y1) 的交點
+        x_at_y1 = (y1 - b) / m if m != 0 else x_s
+        # 與下邊 (y2) 的交點
+        x_at_y2 = (y2 - b) / m if m != 0 else x_s
+    else:
+        # 垂直線的情況
+        x_at_y1 = x_s
+        x_at_y2 = x_s
+
+    # 限制 x 範圍在 [x1, x2] 內
+    x_at_y1 = max(x1, min(x2, x_at_y1))
+    x_at_y2 = max(x1, min(x2, x_at_y2))
+
+    return (int(x_at_y1), int(y1)), (int(x_at_y2), int(y2))
+
 # 繪製關鍵點與連線
 def draw_keypoints(img, keypoints, radius, thickness):
     connections = [
@@ -157,8 +188,9 @@ def process_video(video_path):
             if body_center:
                 cv2.circle(frame, (int(shoulder_center[0]), int(shoulder_center[1])), radius, (255, 0, 0), -1)
             
-            #連線
-            cv2.line(frame, (int(shoulder_center[0]), int(y1)), (int(body_center[0]), int(y2)), (255, 0, 0), thickness)
+            # 兩大重心連線
+            start_point, end_point = extend_line_to_bbox(shoulder_center, body_center, bbox)
+            cv2.line(frame, start_point, end_point, (255, 0, 0),thickness)
 
         # 顯示FPS
         et = time.time()
