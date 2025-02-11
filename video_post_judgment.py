@@ -58,41 +58,27 @@ def draw_keypoints(image, keypoints, radius, thickness):
 
     return image
 
-# 主迴圈：處理影片每一幀
 while cap.isOpened():
     ret, frame = cap.read()
     if not ret:
         break
 
-    # 使用姿勢模型進行推論
+    # 步驟 1: 先用 YOLOv8 偵測人物框
     results_pose = pose_model(frame)
 
     for result in results_pose:
-        keypoints = {}
-        keypoint_coords = result.keypoints.xy[0].cpu().numpy()  # 獲取關鍵點座標
-        bbox = result.boxes.xyxy[0].cpu().numpy()  # 獲取檢測框座標 [x1, y1, x2, y2]
-        x1, y1, x2, y2 = map(int, bbox)
-        
-        # 獲取圖像解析度
-        height, width, _ = frame.shape  
+        for i in range(len(result.boxes.xyxy)):  # 遍歷所有檢測到的人
+            bbox = result.boxes.xyxy[i].cpu().numpy()  # 取得人物框
+            x1, y1, x2, y2 = map(int, bbox)
 
-        # 動態計算圓的半徑和邊框粗細
-        radius = int(min(width, height) * 0.005555)  # 取最小邊長的 0.5% 作為半徑
-        thickness = max(1, radius // 2)
-        fontsize = min(width, height) / 850
-        
-        # 繪製關鍵點
-        frame = draw_keypoints(frame, keypoint_coords,radius,thickness)
-        
-        # 偵測動作姿勢
-        for box, keypoints in zip(result.boxes, result.keypoints):
-            # 偵測框與關鍵點
-            bbox = box.xyxy[0].cpu().numpy()
-            keypoints = keypoints.cpu().numpy()
+            # 取得圖像尺寸
+            height, width, _ = frame.shape  
+            radius = int(min(width, height) * 0.005555)
+            thickness = max(1, radius // 2)
 
-            # 動作模型推論
-            person_crop = frame[int(bbox[1]):int(bbox[3]), int(bbox[0]):int(bbox[2])]
-            if person_crop.size == 0:  # 確保裁切區域有效
+            # 步驟 2: 從框內裁剪人物，傳給動作模型
+            person_crop = frame[y1:y2, x1:x2]
+            if person_crop.size == 0:  # 確保裁切有效
                 continue
 
             action_results = action_model(person_crop)
@@ -105,6 +91,9 @@ while cap.isOpened():
                 # 繪製偵測框與動作標籤
                 draw_bounding_box_and_label(frame, bbox, action_label, confidence)
 
+                # 步驟 3: 如果有識別到動作，則畫出關鍵點
+                keypoint_coords = result.keypoints.xy[i].cpu().numpy()  # 取得該人物的關鍵點
+                frame = draw_keypoints(frame, keypoint_coords, radius, thickness)
 
     # 顯示處理後的畫面
     cv2.imshow("Pose and Action Detection", frame)
