@@ -6,6 +6,13 @@ import matplotlib.pyplot as plt
 # 加載模型
 model = YOLO('yolov8n-pose.pt')  # 載入預訓練模型
 
+state_counts = {
+    "Balanced": 0,
+    "Leaning Left": 0,
+    "Leaning Right": 0,
+    "Unbalanced": 0
+}
+
 # 推論函數
 def detect_pose(image_path):
     # 加載圖片
@@ -23,13 +30,13 @@ def detect_pose(image_path):
         bbox = result.boxes.xyxy[0].cpu().numpy()  # 獲取檢測框座標 [x1, y1, x2, y2]
         x1, y1, x2, y2 = map(int, bbox)
         
-        # # 獲取圖像解析度
-        # height, width  , _ = img.shape  
+        # 獲取圖像解析度
+        height, width  , _ = img.shape  
 
-        # # 動態計算圓的半徑和邊框粗細
-        # radius = int(min(width, height) * 0.005555)  # 取最小邊長的 0.5% 作為半徑
-        # thickness = max(1, radius // 2)
-        # fontsize = min(width, height) / 850
+        # 動態計算圓的半徑和邊框粗細
+        radius = int(min(width, height) * 0.008)  # 取最小邊長的 0.5% 作為半徑
+        thickness = max(1, radius // 2)
+        fontsize = min(width, height) / 950
     
         
         
@@ -48,7 +55,7 @@ def detect_pose(image_path):
         print(f"Right Ankle: {keypoints['right_ankle']}")
         
         # 繪製關鍵點和連線
-        img_with_keypoints = draw_keypoints(img_rgb, keypoint_coords)
+        img_with_keypoints = draw_keypoints(img_rgb, keypoint_coords,radius,thickness)
         
         # print(f"total:{keypoints}")
         
@@ -60,12 +67,12 @@ def detect_pose(image_path):
         
         # 畫重心
         if body_center:
-            cv2.circle(img_rgb, (int(body_center[0]), int(body_center[1])), 5, (255, 0, 0), -1)
+            cv2.circle(img_rgb, (int(body_center[0]), int(body_center[1])), radius, (255, 0, 0), -1)
         print(f"body_center: {body_center}")
         
         # 繪製肩膀中心點
         if body_center:
-            cv2.circle(img_rgb, (int(shoulder_center[0]), int(shoulder_center[1])), 5, (255, 0, 0), -1)
+            cv2.circle(img_rgb, (int(shoulder_center[0]), int(shoulder_center[1])), radius, (255, 0, 0), -1)
         
         if body_center and shoulder_center:
             # 計算斜率和截距
@@ -88,8 +95,49 @@ def detect_pose(image_path):
             
             start_point=int(x_at_y1), int(y1)
             end_point=int(x_at_y2), int(y2)
-            cv2.line(img_rgb, start_point, end_point, (255, 0, 0),2)
+            cv2.line(img_rgb, start_point, end_point, (255, 0, 0),thickness)
             
+        # 連線雙腳
+        R_anakle=keypoints.get("right_ankle")
+        L_ankle=keypoints.get("left_ankle")
+        cv2.line(img_rgb, (int(L_ankle[0]),int(L_ankle[1])), (int(R_anakle[0]),int(R_anakle[1])), (76, 0, 153),thickness)
+        
+        # 判斷腳連線與重心線是否垂直
+        if body_center and shoulder_center and L_ankle and R_anakle:
+
+            center_line_slope = calculate_slope(shoulder_center, body_center)
+            foot_line_slope = calculate_slope(L_ankle, R_anakle)             
+            
+            print(f"center_line_slope: {center_line_slope}")
+            print(f"foot_line_slope: {foot_line_slope}")
+            
+            # 判斷是否平衡
+            if are_lines_perpendicular(center_line_slope, foot_line_slope):
+
+                cv2.rectangle(img_rgb, (x1, y1), (x2, y2),  (0, 255,0), thickness)
+                cv2.putText(img_rgb, "Balanced", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, fontsize, (0, 255,0), thickness)
+                state_counts["Balanced"] += 1
+                print(f"{"Balanced"}")
+            else:
+                print(f"{determine_balance(body_center, shoulder_center, L_ankle, R_anakle)}")
+                balance_status = determine_balance(body_center, shoulder_center, L_ankle, R_anakle)
+                
+                if balance_status == "Left":
+                    cv2.rectangle(img_rgb, (x1, y1), (x2, y2), (51, 255, 255), thickness)
+                    cv2.putText(img_rgb, "Leaning Left", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, fontsize, (51, 255, 255), thickness)
+                    state_counts["Leaning Left"] += 1
+                elif balance_status == "Right":
+                    text_size = cv2.getTextSize("Leaning Right", cv2.FONT_HERSHEY_SIMPLEX, fontsize, thickness)[0]  # 返回 (width, height)
+                    text_width, text_height = text_size
+
+                    cv2.rectangle(img_rgb, (x1, y1), (x2, y2), (51, 153, 255), thickness)
+                    cv2.putText(img_rgb, "Leaning Right", (x2 - text_width, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, fontsize, (51, 153, 255), thickness)
+                    state_counts["Leaning Right"] += 1
+                else:
+                    cv2.rectangle(img_rgb, (x1, y1), (x2, y2), (0, 0, 255), thickness)
+                    cv2.putText(img_rgb, "Unbalanced", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, fontsize, (0, 0, 255), thickness)
+                    state_counts["Unbalanced"] += 1
+
     
     # 顯示圖片
     plt.imshow(img_with_keypoints)
@@ -99,7 +147,7 @@ def detect_pose(image_path):
 
 
 # 繪製關鍵點與連線
-def draw_keypoints(img, keypoints):
+def draw_keypoints(img, keypoints,radius,thickness):
     connections = [
         (5, 6), (5, 7), (7, 9), (6, 8), (8, 10),  # 上肢
         (11, 12), (11, 13), (13, 15), (12, 14), (14, 16)  # 下肢
@@ -107,14 +155,14 @@ def draw_keypoints(img, keypoints):
 
     # 繪製關鍵點
     for x, y in keypoints:
-        cv2.circle(img, (int(x), int(y)), 5, (0, 255, 0), -1)  # 綠點
+        cv2.circle(img, (int(x), int(y)), radius, (0, 255, 0), -1)  # 綠點
 
     # 繪製連線
     for connection in connections:
         try:
             start = (int(keypoints[connection[0]][0]), int(keypoints[connection[0]][1]))
             end = (int(keypoints[connection[1]][0]), int(keypoints[connection[1]][1]))
-            cv2.line(img, start, end, (0, 0, 255), 2)  # 紅線
+            cv2.line(img, start, end, (0, 0, 255), thickness)  # 紅線
         except IndexError:
             print(f"Connection {connection} is out of range for keypoints list.")
 
@@ -227,10 +275,66 @@ def calculate_slope(point1, point2):
         return None
     return round((y2 - y1) / (x2 - x1),1)
 
+# 判斷是否垂直
+def are_lines_perpendicular(slope1, slope2):
+    """
+    檢查兩條線是否互相垂直
+    :return: True 如果垂直，False 如果不垂直
+    """
+    if slope1 is None:  # 第一條線垂直
+        return slope2 == 0
+    if slope2 is None:  # 第二條線垂直
+        return slope1 == 0
+    
+    num=round(slope1 * slope2,1)
+    
+    print(f"num: {num}")
+    
+    if num >= -1.5 and num <= -0.5:
+        return True
+    else:
+        return False
+
+# 重心偏向判斷
+def determine_balance(body_center, shoulder_center, L_ankle, R_ankle):
+    """
+    判斷平衡狀態（偏左、偏右或完全不平衡）
+    :param body_center: 人體重心 (x, y)
+    :param shoulder_center: 肩膀中心點 (x, y)
+    :param L_ankle: 左腳踝座標 (x, y)
+    :param R_ankle: 右腳踝座標 (x, y)
+    :return: 'Balanced', 'Left', 'Right', 'Unbalanced'
+    """
+    # 重心線斜率與截距
+    center_slope = calculate_slope(shoulder_center, body_center)
+    center_intercept = calculate_intercept(center_slope, shoulder_center)
+
+    # 腳連線斜率與截距
+    foot_slope = calculate_slope(L_ankle, R_ankle)
+    foot_intercept = calculate_intercept(foot_slope, L_ankle)
+
+    # 計算重心線與腳連線的交點
+    intersection = calculate_intersection(center_slope, center_intercept, foot_slope, foot_intercept)
+
+    if not intersection:
+        return "Unbalanced"  # 無交點，表示完全不平衡
+
+    x_inter, _ = intersection
+    x_left = min(L_ankle[0], R_ankle[0])
+    x_right = max(L_ankle[0], R_ankle[0])
+
+    if x_left <= x_inter <= x_right:
+        if x_inter < (x_left + x_right) / 2:  # 靠近左側
+            return "Left"
+        else:  # 靠近右側
+            return "Right"
+    else:
+        return "Unbalanced"  # 重心線交點不在腳連線範圍內
+
 
 # 主程式
 if __name__ == "__main__":
     # image_path = "data/images/sample_image.jpg"  # 測試圖片路徑
-    image_path = "data/images/image.jpg"  # 測試圖片路徑
+    image_path = "data/images/sample10.jpg"  # 測試圖片路徑
     # image_path = "data/images/court1.jpg"  # 測試圖片路徑
     detect_pose(image_path)
