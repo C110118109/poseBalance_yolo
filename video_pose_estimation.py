@@ -154,8 +154,12 @@ def determine_balance(body_center, shoulder_center, L_ankle, R_ankle):
     foot_slope = calculate_slope(L_ankle, R_ankle)
     foot_intercept = calculate_intercept(foot_slope, L_ankle)
 
-    # 計算重心線與腳連線的交點
-    intersection = calculate_intersection(center_slope, center_intercept, foot_slope, foot_intercept)
+    # 初始化 intersection
+    intersection = None
+
+    # 如果腳的連線可以形成有效的線段
+    if foot_slope is not None and foot_intercept is not None:
+        intersection = calculate_intersection(center_slope, center_intercept, foot_slope, foot_intercept)
 
     if not intersection:
         return "Unbalanced"  # 無交點，表示完全不平衡
@@ -366,6 +370,6 @@ def process_video(video_path,output_path):
 # 主程式
 if __name__ == "__main__":
     # video_path = "data/videos/sample_video.mp4"  # 測試影片路徑
-    video_path = "data/videos/sample_video.mp4"  # 測試影片路徑
+    video_path = "data/videos/1 (4).mp4"  # 測試影片路徑
     output_path = "output.mp4"
     process_video(video_path,output_path)

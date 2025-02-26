@@ -15,7 +15,7 @@ state_counts = {
 }
 
 # 設定影片來源
-video_path = "data/videos/1 (1).mp4"  # 替換為你的影片路徑
+video_path = "data/videos/1 (2).mp4"  # 替換為你的影片路徑
 output_path = "new_output.mp4"
 cap = cv2.VideoCapture(video_path)
 cv2.namedWindow('Pose Judgment', cv2.WINDOW_NORMAL)  # 設定視窗
@@ -218,8 +218,12 @@ def determine_balance(body_center, shoulder_center, L_ankle, R_ankle):
     foot_slope = calculate_slope(L_ankle, R_ankle)
     foot_intercept = calculate_intercept(foot_slope, L_ankle)
 
-    # 計算重心線與腳連線的交點
-    intersection = calculate_intersection(center_slope, center_intercept, foot_slope, foot_intercept)
+    # 初始化 intersection
+    intersection = None
+
+    # 如果腳的連線可以形成有效的線段
+    if foot_slope is not None and foot_intercept is not None:
+        intersection = calculate_intersection(center_slope, center_intercept, foot_slope, foot_intercept)
 
     if not intersection:
         return "Unbalanced"  # 無交點，表示完全不平衡

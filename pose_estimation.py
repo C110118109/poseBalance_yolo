@@ -2,6 +2,7 @@ from ultralytics import YOLO
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
+import math
 
 # 加載模型
 model = YOLO('yolov8n-pose.pt')  # 載入預訓練模型
@@ -102,6 +103,7 @@ def detect_pose(image_path):
         L_ankle=keypoints.get("left_ankle")
         cv2.line(img_rgb, (int(L_ankle[0]),int(L_ankle[1])), (int(R_anakle[0]),int(R_anakle[1])), (76, 0, 153),thickness)
         
+
         # 判斷腳連線與重心線是否垂直
         if body_center and shoulder_center and L_ankle and R_anakle:
 
@@ -138,6 +140,12 @@ def detect_pose(image_path):
                     cv2.putText(img_rgb, "Unbalanced", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, fontsize, (0, 0, 255), thickness)
                     state_counts["Unbalanced"] += 1
 
+        # # 計算角度
+        # angle = calculate_angle(center_line_slope, foot_line_slope)
+        
+        # # 顯示角度
+        # display_angle_on_image(img_rgb, angle,fontsize,thickness, position=(x2 + 20, y1 + 20))  # 在圖片旁顯示角度
+        
     
     # 顯示圖片
     plt.imshow(img_with_keypoints)
@@ -313,8 +321,12 @@ def determine_balance(body_center, shoulder_center, L_ankle, R_ankle):
     foot_slope = calculate_slope(L_ankle, R_ankle)
     foot_intercept = calculate_intercept(foot_slope, L_ankle)
 
-    # 計算重心線與腳連線的交點
-    intersection = calculate_intersection(center_slope, center_intercept, foot_slope, foot_intercept)
+    # 初始化 intersection
+    intersection = None
+
+    # 如果腳的連線可以形成有效的線段
+    if foot_slope is not None and foot_intercept is not None:
+        intersection = calculate_intersection(center_slope, center_intercept, foot_slope, foot_intercept)
 
     if not intersection:
         return "Unbalanced"  # 無交點，表示完全不平衡
@@ -331,10 +343,26 @@ def determine_balance(body_center, shoulder_center, L_ankle, R_ankle):
     else:
         return "Unbalanced"  # 重心線交點不在腳連線範圍內
 
+# # 計算兩條線之間的角度
+# def calculate_angle(slope1, slope2):
+#     if slope1 is None or slope2 is None:
+#         return None  # 如果其中一條線是垂直線，無法計算角度
+    
+#     # 兩條直線的斜率
+#     angle_radians = abs(math.atan(abs((slope2 - slope1) / (1 + slope1 * slope2))))
+#     angle_degrees = math.degrees(angle_radians)  # 轉換為度數
+#     return round(angle_degrees, 2)
+
+# # 在圖像上顯示角度
+# def display_angle_on_image(img, angle, fontsize, thickness, position=(50, 50)):
+#     if angle is not None:
+#         cv2.putText(img, f"Angle: {angle}", position, cv2.FONT_HERSHEY_SIMPLEX, fontsize+0.3, (0, 255, 255), thickness)
+#         print(f"Angle: {angle}")
+
 
 # 主程式
 if __name__ == "__main__":
     # image_path = "data/images/sample_image.jpg"  # 測試圖片路徑
-    image_path = "data/images/sample10.jpg"  # 測試圖片路徑
+    image_path = "data/images/sample07.jpg"  # 測試圖片路徑
     # image_path = "data/images/court1.jpg"  # 測試圖片路徑
     detect_pose(image_path)
