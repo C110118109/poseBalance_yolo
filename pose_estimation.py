@@ -103,7 +103,16 @@ def detect_pose(image_path):
         L_ankle=keypoints.get("left_ankle")
         cv2.line(img_rgb, (int(L_ankle[0]),int(L_ankle[1])), (int(R_anakle[0]),int(R_anakle[1])), (76, 0, 153),thickness)
         
+        # draw_pose_lines(img_rgb, keypoints, bbox,thickness)
+        
+        # # 計算文字位置
+        # x_mid = (L_ankle[0] + R_anakle[0]) / 2
+        # text_x = int(x_mid) - 40  # 調整 40 讓文字置中
+        # text_y = int(y2) +15  # 讓文字位於檢測框下方
 
+        # # 在圖像上加文字
+        # cv2.putText(img_rgb, "standard", (text_x, text_y), cv2.FONT_HERSHEY_SIMPLEX, fontsize, (284, 251, 76), thickness) 
+        
         # 判斷腳連線與重心線是否垂直
         if body_center and shoulder_center and L_ankle and R_anakle:
 
@@ -140,11 +149,11 @@ def detect_pose(image_path):
                     cv2.putText(img_rgb, "Unbalanced", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, fontsize, (0, 0, 255), thickness)
                     state_counts["Unbalanced"] += 1
 
-        # # 計算角度
-        # angle = calculate_angle(center_line_slope, foot_line_slope)
+        # 計算角度
+        angle = calculate_angle(center_line_slope, foot_line_slope)
         
-        # # 顯示角度
-        # display_angle_on_image(img_rgb, angle,fontsize,thickness, position=(x2 + 20, y1 + 20))  # 在圖片旁顯示角度
+        # 顯示角度
+        display_angle_on_image(img_rgb, angle,fontsize,thickness, position=(int(x_at_y2), int(y2)+10))  # 在圖片旁顯示角度
         
     
     # 顯示圖片
@@ -152,7 +161,43 @@ def detect_pose(image_path):
     plt.axis('off')
     plt.show()
 
-
+def draw_pose_lines(image, keypoints, bbox,thickness):
+    # 確保 keypoints 至少包含兩腳的點（這裡假設 15 和 16 為左右腳踝）
+    R_anakle=keypoints.get("right_ankle")
+    L_ankle=keypoints.get("left_ankle")
+    if R_anakle is not None and L_ankle is not None:
+        A = tuple(map(int, R_anakle))  # 腳踝A
+        B = tuple(map(int, L_ankle))  # 腳踝B
+        
+        # 繪製雙腳的連線
+        cv2.line(image, A, B, (0, 255, 0), 2)
+        
+        # 計算中點 M
+        M = ((A[0] + B[0]) // 2, (A[1] + B[1]) // 2)
+        
+        # 計算垂直向量 (dx, dy) -> (-dy, dx) 為垂直方向
+        dx = B[0] - A[0]
+        dy = B[1] - A[1]
+        perp_dx, perp_dy = -dy, dx
+        
+        # 正規化垂直向量
+        length = np.sqrt(perp_dx**2 + perp_dy**2)
+        if length != 0:
+            perp_dx = int(perp_dx / length * 1000)  # 延伸到大範圍
+            perp_dy = int(perp_dy / length * 1000)
+        
+        # 向上、向下延伸至 BBox 的頂部和底部
+        top_intersection = (M[0] + perp_dx, M[1] + perp_dy)
+        bottom_intersection = (M[0] - perp_dx, M[1] - perp_dy)
+        
+        # 限制在 BBox 內
+        top_intersection = (max(int(bbox[0]), min(int(bbox[2]), int(top_intersection[0]))), max(int(bbox[1]), min(int(bbox[3]), int(top_intersection[1]))))
+        bottom_intersection = (max(int(bbox[0]), min(int(bbox[2]), int(bottom_intersection[0]))), max(int(bbox[1]), min(int(bbox[3]), int(bottom_intersection[1]))))
+        
+        # 繪製垂直線
+        cv2.line(image, top_intersection, bottom_intersection,  (284, 251, 76), thickness)
+        
+    return image
 
 # 繪製關鍵點與連線
 def draw_keypoints(img, keypoints,radius,thickness):
@@ -343,26 +388,26 @@ def determine_balance(body_center, shoulder_center, L_ankle, R_ankle):
     else:
         return "Unbalanced"  # 重心線交點不在腳連線範圍內
 
-# # 計算兩條線之間的角度
-# def calculate_angle(slope1, slope2):
-#     if slope1 is None or slope2 is None:
-#         return None  # 如果其中一條線是垂直線，無法計算角度
+# 計算兩條線之間的角度
+def calculate_angle(slope1, slope2):
+    if slope1 is None or slope2 is None:
+        return None  # 如果其中一條線是垂直線，無法計算角度
     
-#     # 兩條直線的斜率
-#     angle_radians = abs(math.atan(abs((slope2 - slope1) / (1 + slope1 * slope2))))
-#     angle_degrees = math.degrees(angle_radians)  # 轉換為度數
-#     return round(angle_degrees, 2)
+    # 兩條直線的斜率
+    angle_radians = abs(math.atan(abs((slope2 - slope1) / (1 + slope1 * slope2))))
+    angle_degrees = math.degrees(angle_radians)  # 轉換為度數
+    return round(angle_degrees, 2)
 
-# # 在圖像上顯示角度
-# def display_angle_on_image(img, angle, fontsize, thickness, position=(50, 50)):
-#     if angle is not None:
-#         cv2.putText(img, f"Angle: {angle}", position, cv2.FONT_HERSHEY_SIMPLEX, fontsize+0.3, (0, 255, 255), thickness)
-#         print(f"Angle: {angle}")
+# 在圖像上顯示角度
+def display_angle_on_image(img, angle, fontsize, thickness, position):
+    if angle is not None:
+        cv2.putText(img, f"Angle: {angle}", position, cv2.FONT_HERSHEY_SIMPLEX, fontsize+0.1,  (284, 251, 76), thickness)
+        print(f"Angle: {angle}")
 
 
 # 主程式
 if __name__ == "__main__":
     # image_path = "data/images/sample_image.jpg"  # 測試圖片路徑
-    image_path = "data/images/sample07.jpg"  # 測試圖片路徑
+    image_path = "data/images/sample11.jpg"  # 測試圖片路徑
     # image_path = "data/images/court1.jpg"  # 測試圖片路徑
     detect_pose(image_path)

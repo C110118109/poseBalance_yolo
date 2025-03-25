@@ -1,3 +1,4 @@
+import math
 import time
 from ultralytics import YOLO
 import cv2
@@ -15,7 +16,7 @@ state_counts = {
 }
 
 # 設定影片來源
-video_path = "data/videos/1 (2).mp4"  # 替換為你的影片路徑
+video_path = "data/videos/2.mp4"  # 替換為你的影片路徑
 output_path = "new_output.mp4"
 cap = cv2.VideoCapture(video_path)
 cv2.namedWindow('Pose Judgment', cv2.WINDOW_NORMAL)  # 設定視窗
@@ -240,6 +241,23 @@ def determine_balance(body_center, shoulder_center, L_ankle, R_ankle):
     else:
         return "Unbalanced"  # 重心線交點不在腳連線範圍內
 
+# 計算兩條線之間的角度
+def calculate_angle(slope1, slope2):
+    if slope1 is None or slope2 is None:
+        return None  # 如果其中一條線是垂直線，無法計算角度
+    
+    # 兩條直線的斜率
+    angle_radians = abs(math.atan(abs((slope2 - slope1) / (1 + slope1 * slope2))))
+    angle_degrees = math.degrees(angle_radians)  # 轉換為度數
+    return round(angle_degrees, 2)
+
+# 在圖像上顯示角度
+def display_angle_on_image(img, angle, fontsize, thickness, position):
+    if angle is not None:
+        cv2.putText(img, f"Angle: {angle}", position, cv2.FONT_HERSHEY_SIMPLEX, fontsize+0.1,  (76, 251, 284), thickness)
+        print(f"Angle: {angle}")
+
+
 # ---------------------------------------------------------------------------------------------------------------------------
 while cap.isOpened():
     ret, frame = cap.read()
@@ -340,7 +358,14 @@ while cap.isOpened():
                             cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), thickness)
                             cv2.putText(frame, "Unbalanced", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, fontsize, (0, 0, 255), thickness)
                             state_counts["Unbalanced"] += 1
+
+                # 計算角度
+                angle = calculate_angle(center_line_slope, foot_line_slope)
+    
+                # 顯示角度
+                display_angle_on_image(frame, angle,fontsize,thickness, position=(int(end_point[0]), int(end_point[1])+20))  # 在圖片旁顯示角度
         
+                
     # 顯示處理後的畫面
     cv2.imshow("Pose and Action Detection", frame)
     if cv2.waitKey(1) & 0xFF == 27:
