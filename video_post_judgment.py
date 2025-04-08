@@ -16,7 +16,7 @@ state_counts = {
 }
 
 # 設定影片來源
-video_path = "data/videos/2.mp4"  # 替換為你的影片路徑
+video_path = "data/videos/sample.mp4"  # 替換為你的影片路徑
 output_path = "new_output.mp4"
 cap = cv2.VideoCapture(video_path)
 cv2.namedWindow('Pose Judgment', cv2.WINDOW_NORMAL)  # 設定視窗
